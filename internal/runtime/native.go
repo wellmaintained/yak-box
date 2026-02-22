@@ -52,6 +52,15 @@ unset CLAUDECODE
 echo $$ > "%s"
 exec claude %s @"%s"
 `, worker.YakPath, pidFile, claudeArgsStr, promptFile)
+	} else if worker.Tool == "cursor" {
+		paneName = "cursor (build)"
+		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash
+export YAK_PATH="%s"
+PROMPT="$(cat "%s")"
+# Write PID before exec so yak-box stop can find and kill the process tree.
+echo $$ > "%s"
+exec agent --force --workspace "%s" "$PROMPT"
+`, worker.YakPath, promptFile, pidFile, worker.CWD)
 	} else {
 		paneName = "opencode (build)"
 		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash

@@ -47,7 +47,8 @@ Native mode: Runs the AI tool directly on the host with full system access.
 
 Tool selection:
   --tool claude (default): Uses Claude Code with --print mode and agent prompts.
-  --tool opencode: Uses OpenCode with --agent build mode.`,
+  --tool opencode: Uses OpenCode with --agent build mode.
+  --tool cursor: Uses Cursor agent CLI with --force mode.`,
 	Example: `  # Spawn a worker for API authentication tasks
   yak-box spawn --cwd ./api --name api-auth --yaks auth/api/login --yaks auth/api/logout
 
@@ -81,8 +82,8 @@ Tool selection:
 			errs = append(errs, fmt.Errorf("--runtime must be 'auto', 'sandboxed', or 'native', got '%s'", spawnRuntime))
 		}
 
-		if spawnTool != "opencode" && spawnTool != "claude" {
-			errs = append(errs, fmt.Errorf("--tool must be 'opencode' or 'claude', got '%s'", spawnTool))
+		if spawnTool != "opencode" && spawnTool != "claude" && spawnTool != "cursor" {
+			errs = append(errs, fmt.Errorf("--tool must be 'opencode', 'claude', or 'cursor', got '%s'", spawnTool))
 		}
 
 		if len(errs) > 0 {
@@ -179,7 +180,7 @@ func runSpawn(ctx context.Context, args []string) error {
 
 	displayName := workerName
 	if yakTitle != "" {
-		displayName += " " + yakTitle
+		displayName += " 🪒🦬 " + yakTitle
 	}
 
 	sanitizedName := strings.ReplaceAll(spawnName, " ", "-")
@@ -267,13 +268,19 @@ func runSpawn(ctx context.Context, args []string) error {
 
 	for _, task := range spawnYaks {
 		taskSlug := types.SlugifyTaskPath(task)
-		taskFile := filepath.Join(absYakPath, taskSlug, "assigned-to")
+		taskDir, err := findTaskDir(absYakPath, taskSlug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to find task directory for %s: %v\n", task, err)
+			continue
+		}
+
+		taskFile := filepath.Join(taskDir, "assigned-to")
 		if err := os.WriteFile(taskFile, []byte(workerName), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to assign task %s: %v\n", task, err)
 		}
 
 		if worktreePath != "" {
-			worktreeFile := filepath.Join(absYakPath, taskSlug, "worktree-path")
+			worktreeFile := filepath.Join(taskDir, "worktree-path")
 			if err := os.WriteFile(worktreeFile, []byte(worktreePath), 0644); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to write worktree path for task %s: %v\n", task, err)
 			}
@@ -282,6 +289,38 @@ func runSpawn(ctx context.Context, args []string) error {
 
 	fmt.Printf("Spawned %s (%s) in %s\n", workerName, spawnName, runtimeType)
 	return nil
+}
+
+// findTaskDir searches the .yaks/ tree for a directory matching the task slug.
+// Tasks can be nested (e.g., "release-yakthang/yak-box/missing-tab-emoji"),
+// so we walk the tree looking for a directory whose base name matches the slug.
+func findTaskDir(yakPath, taskSlug string) (string, error) {
+	// If the slug contains path separators, try the direct path first.
+	directPath := filepath.Join(yakPath, taskSlug)
+	if info, err := os.Stat(directPath); err == nil && info.IsDir() {
+		return directPath, nil
+	}
+
+	// Otherwise, search for a directory with a matching leaf name.
+	leafName := filepath.Base(taskSlug)
+	var matches []string
+	filepath.Walk(yakPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() && info.Name() == leafName && path != yakPath {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no directory matching %q found under %s", taskSlug, yakPath)
+	}
+	if len(matches) > 1 {
+		fmt.Fprintf(os.Stderr, "Warning: multiple directories match %q, using first: %s\n", taskSlug, matches[0])
+	}
+	return matches[0], nil
 }
 
 func init() {
@@ -299,7 +338,7 @@ func init() {
 	spawnCmd.Flags().StringSliceVar(&spawnYaks, "task", []string{}, "Alias for --yaks")
 	spawnCmd.Flags().StringVar(&spawnYakPath, "yak-path", ".yaks", "Path to task state directory")
 	spawnCmd.Flags().StringVar(&spawnRuntime, "runtime", "auto", "Runtime: 'auto', 'sandboxed', or 'native'")
-	spawnCmd.Flags().StringVar(&spawnTool, "tool", "claude", "AI tool: 'opencode' or 'claude'")
+	spawnCmd.Flags().StringVar(&spawnTool, "tool", "claude", "AI tool: 'opencode', 'claude', or 'cursor'")
 	spawnCmd.Flags().BoolVar(&spawnClean, "clean", false, "Clean worker home directory before spawning")
 	spawnCmd.Flags().BoolVar(&spawnAutoWorktree, "auto-worktree", false, "Automatically create and use git worktree for the task")
 }

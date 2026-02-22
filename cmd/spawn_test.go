@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -185,6 +187,46 @@ func TestSpawnValidation(t *testing.T) {
 	}
 }
 
+func TestSpawnToolOptions(t *testing.T) {
+	validTools := []string{"claude", "opencode", "cursor"}
+
+	for _, tool := range validTools {
+		t.Run("valid_tool_"+tool, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.Flags().AddFlagSet(spawnCmd.Flags())
+
+			spawnCWD = "/tmp/test"
+			spawnName = "test-worker"
+			spawnMode = "build"
+			spawnResources = "default"
+			spawnRuntime = "auto"
+			spawnTool = tool
+
+			err := spawnCmd.PreRunE(cmd, []string{})
+			assert.NoError(t, err)
+		})
+	}
+
+	t.Run("invalid_tool", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		cmd.Flags().AddFlagSet(spawnCmd.Flags())
+
+		spawnCWD = "/tmp/test"
+		spawnName = "test-worker"
+		spawnMode = "build"
+		spawnResources = "default"
+		spawnRuntime = "auto"
+		spawnTool = "invalid"
+
+		err := spawnCmd.PreRunE(cmd, []string{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "--tool must be")
+
+		// Reset to avoid polluting subsequent tests that share this global
+		spawnTool = "claude"
+	})
+}
+
 func TestSpawnValidationBatching(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().AddFlagSet(spawnCmd.Flags())
@@ -271,6 +313,45 @@ func TestSpawnModeOptions(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestFindTaskDir(t *testing.T) {
+	// Create a temp .yaks tree:
+	// .yaks/
+	//   release/
+	//     yak-box/
+	//       missing-tab-emoji/
+	//   fixes/
+	//     tab-emoji/
+	tmpDir := t.TempDir()
+	nested := filepath.Join(tmpDir, "release", "yak-box", "missing-tab-emoji")
+	os.MkdirAll(nested, 0755)
+	other := filepath.Join(tmpDir, "fixes", "tab-emoji")
+	os.MkdirAll(other, 0755)
+
+	t.Run("finds nested task by leaf name", func(t *testing.T) {
+		dir, err := findTaskDir(tmpDir, "missing-tab-emoji")
+		assert.NoError(t, err)
+		assert.Equal(t, nested, dir)
+	})
+
+	t.Run("finds task with direct full path", func(t *testing.T) {
+		dir, err := findTaskDir(tmpDir, "release/yak-box/missing-tab-emoji")
+		assert.NoError(t, err)
+		assert.Equal(t, nested, dir)
+	})
+
+	t.Run("finds task in different subtree", func(t *testing.T) {
+		dir, err := findTaskDir(tmpDir, "tab-emoji")
+		assert.NoError(t, err)
+		assert.Equal(t, other, dir)
+	})
+
+	t.Run("returns error for nonexistent task", func(t *testing.T) {
+		_, err := findTaskDir(tmpDir, "nonexistent-task")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no directory matching")
+	})
 }
 
 func TestSpawnRuntimeOptions(t *testing.T) {

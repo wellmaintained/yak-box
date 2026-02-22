@@ -114,11 +114,22 @@ func runStop() error {
 	yakPath := ".yaks"
 	if !stopForce && session.Task != "" {
 		ui.Info("⏳ Clearing task assignments...\n")
-		taskFile := filepath.Join(yakPath, types.SlugifyTaskPath(session.Task), "assigned-to")
-		if err := os.Remove(taskFile); err != nil && !os.IsNotExist(err) {
-			fmt.Printf("Warning: Failed to clear assignment for %s: %v\n", session.Task, err)
+		taskSlug := types.SlugifyTaskPath(session.Task)
+		absYakPath, err := filepath.Abs(yakPath)
+		if err != nil {
+			fmt.Printf("Warning: Failed to resolve yak path: %v\n", err)
 		} else {
-			ui.Success("✅ Cleared assignment: %s\n", session.Task)
+			taskDir, err := findTaskDir(absYakPath, taskSlug)
+			if err != nil {
+				fmt.Printf("Warning: Failed to find task directory for %s: %v\n", session.Task, err)
+			} else {
+				taskFile := filepath.Join(taskDir, "assigned-to")
+				if err := os.Remove(taskFile); err != nil && !os.IsNotExist(err) {
+					fmt.Printf("Warning: Failed to clear assignment for %s: %v\n", session.Task, err)
+				} else {
+					ui.Success("✅ Cleared assignment: %s\n", session.Task)
+				}
+			}
 		}
 	}
 
