@@ -10,7 +10,7 @@ import (
 
 func generateInitScript() string {
 	return `#!/usr/bin/env bash
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-/home/yakob/yakthang}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-/home/yakob/yak-box}"
 COST_DIR="${WORKSPACE_ROOT}/.worker-costs"
 mkdir -p "$COST_DIR"
 

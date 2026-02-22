@@ -291,7 +291,7 @@ func init() {
 	spawnCmd.Flags().StringVar(&spawnName, "name", "", "Worker name used in logs and metadata (required)")
 	spawnCmd.MarkFlagRequired("name")
 
-	spawnCmd.Flags().StringVar(&spawnSession, "session", "yakthang", "Zellij session name (overrides ZELLIJ_SESSION_NAME)")
+	spawnCmd.Flags().StringVar(&spawnSession, "session", "yak-box", "Zellij session name (overrides ZELLIJ_SESSION_NAME)")
 
 	spawnCmd.Flags().StringVar(&spawnMode, "mode", "build", "Agent mode: 'plan' or 'build'")
 	spawnCmd.Flags().StringVar(&spawnResources, "resources", "default", "Resource profile: 'light', 'default', 'heavy', or 'ram'")

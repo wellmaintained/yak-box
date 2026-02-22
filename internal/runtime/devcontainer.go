@@ -14,7 +14,7 @@ const devcontainerPath = ".devcontainer"
 const workerImageName = "yak-worker:latest"
 
 func getStoredDevcontainerCommit() (string, error) {
-	cmd := exec.Command("docker", "image", "inspect", workerImageName, "--format", "{{index .Config.Labels \"yakthang.devcontainer.commit\"}}")
+	cmd := exec.Command("docker", "image", "inspect", workerImageName, "--format", "{{index .Config.Labels \"yak-box.devcontainer.commit\"}}")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -80,7 +80,7 @@ func RebuildDevcontainer() error {
 	cmd := exec.Command("docker", "build",
 		"-t", workerImageName,
 		"-f", devcontainerPath+"/Dockerfile",
-		"--label", "yakthang.devcontainer.commit="+commitHash,
+		"--label", "yak-box.devcontainer.commit="+commitHash,
 		".")
 	cmd.Dir = workspaceRoot
 	cmd.Stdout = os.Stdout

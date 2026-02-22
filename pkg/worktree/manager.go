@@ -10,7 +10,7 @@ import (
 )
 
 // DetermineWorktreePath calculates the path for a worktree
-// Uses XDG-compliant location: ~/.local/share/yakthang/worktrees/<project>/<task-path>
+// Uses XDG-compliant location: ~/.local/share/yak-box/worktrees/<project>/<task-path>
 func DetermineWorktreePath(projectPath, taskPath string) string {
 	projectName := filepath.Base(projectPath)
 	sanitizedName := sanitizeTaskPath(taskPath)
@@ -23,13 +23,13 @@ func DetermineWorktreePath(projectPath, taskPath string) string {
 		return filepath.Join(parentDir, fmt.Sprintf("%s-%s", projectName, sanitizedName))
 	}
 
-	// XDG-compliant path: ~/.local/share/yakthang/worktrees/<project>/<task-path>
+	// XDG-compliant path: ~/.local/share/yak-box/worktrees/<project>/<task-path>
 	xdgDataHome := os.Getenv("XDG_DATA_HOME")
 	if xdgDataHome == "" {
 		xdgDataHome = filepath.Join(homeDir, ".local", "share")
 	}
 
-	worktreePath := filepath.Join(xdgDataHome, "yakthang", "worktrees", projectName, sanitizedName)
+	worktreePath := filepath.Join(xdgDataHome, "yak-box", "worktrees", projectName, sanitizedName)
 
 	// Ensure parent directory exists
 	_ = os.MkdirAll(filepath.Dir(worktreePath), 0755)

@@ -216,7 +216,7 @@ func TestSpawnFlagTypes(t *testing.T) {
 	}{
 		{name: "cwd string flag", flagName: "cwd", want: ""},
 		{name: "name string flag", flagName: "name", want: ""},
-		{name: "session string flag", flagName: "session", want: "yakthang"},
+		{name: "session string flag", flagName: "session", want: "yak-box"},
 		{name: "mode string flag", flagName: "mode", want: "build"},
 		{name: "resources string flag", flagName: "resources", want: "default"},
 		{name: "yak-path string flag", flagName: "yak-path", want: ".yaks"},

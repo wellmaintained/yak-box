@@ -15,19 +15,19 @@ func TestDetermineWorktreePath(t *testing.T) {
 			name:         "basic worktree path",
 			projectPath:  "/home/user/myproject",
 			taskPath:     "auth/api",
-			wantContains: []string{"yakthang/worktrees", "myproject", "auth-api"},
+			wantContains: []string{"yak-box/worktrees", "myproject", "auth-api"},
 		},
 		{
 			name:         "single level task",
 			projectPath:  "/home/user/myproject",
 			taskPath:     "bugfix",
-			wantContains: []string{"yakthang/worktrees", "myproject", "bugfix"},
+			wantContains: []string{"yak-box/worktrees", "myproject", "bugfix"},
 		},
 		{
 			name:         "deep task path",
 			projectPath:  "/home/user/myproject",
 			taskPath:     "feature/auth/api/oauth",
-			wantContains: []string{"yakthang/worktrees", "myproject", "feature-auth-api-oauth"},
+			wantContains: []string{"yak-box/worktrees", "myproject", "feature-auth-api-oauth"},
 		},
 	}
 
