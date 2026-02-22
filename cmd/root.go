@@ -28,4 +28,5 @@ func init() {
 	rootCmd.AddCommand(spawnCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(diffCmd)
 }
