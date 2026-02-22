@@ -42,7 +42,7 @@ const (
 )
 
 var spawnCmd = &cobra.Command{
-	Use:   "spawn --cwd <dir> --name <tab-name> [flags]",
+	Use:   "spawn --name <tab-name> [flags]",
 	Short: "Spawn a new worker",
 	Long: `Spawn a new worker with specified configuration.
 
@@ -70,9 +70,6 @@ Tool selection:
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		var errs []error
 
-		if spawnCWD == "" {
-			errs = append(errs, fmt.Errorf("--cwd is required (working directory for the worker)"))
-		}
 		if spawnName == "" {
 			errs = append(errs, fmt.Errorf("--name is required (worker name used in logs and metadata)"))
 		}
@@ -170,9 +167,13 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 		}
 	}
 
-	absCWD, err := filepath.Abs(spawnCWD)
+	startDir := "."
+	if strings.TrimSpace(spawnCWD) != "" {
+		startDir = spawnCWD
+	}
+	startAbsDir, err := filepath.Abs(startDir)
 	if err != nil {
-		return fmt.Errorf("failed to resolve working directory: %w. Suggestion: Ensure --cwd path is valid and accessible", err)
+		return fmt.Errorf("failed to resolve start directory: %w. Suggestion: Ensure current directory or --cwd path is valid and accessible", err)
 	}
 
 	var absYakPath string
@@ -182,10 +183,31 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 			return fmt.Errorf("failed to resolve yak path: %w. Suggestion: Ensure --yak-path exists and is accessible", err)
 		}
 	} else {
-		absYakPath, err = findYakPath(absCWD, filepath.Base(spawnYakPath))
+		absYakPath, err = findYakPath(startAbsDir, filepath.Base(spawnYakPath))
 		if err != nil {
-			return fmt.Errorf("No .yaks found above %s. Use --yak-path to specify explicitly", absCWD)
+			return fmt.Errorf("No .yaks found above %s. Use --yak-path to specify explicitly", startAbsDir)
 		}
+	}
+
+	var (
+		absCWD             string
+		inheritedWorktrees []string
+		worktreeBranch     string
+	)
+	if len(spawnYaks) > 0 {
+		inheritedWorktrees, worktreeBranch, err = resolveInheritedWorktrees(absYakPath, spawnYaks[0])
+		if err != nil {
+			return fmt.Errorf("failed to resolve worktrees from yak %q: %w", spawnYaks[0], err)
+		}
+	}
+
+	if strings.TrimSpace(spawnCWD) != "" {
+		absCWD, err = filepath.Abs(spawnCWD)
+		if err != nil {
+			return fmt.Errorf("failed to resolve working directory: %w. Suggestion: Ensure --cwd path is valid and accessible", err)
+		}
+	} else if len(inheritedWorktrees) == 0 {
+		return fmt.Errorf("--cwd is required unless the assigned yak defines a worktrees field")
 	}
 
 	worktreePath := ""
@@ -215,6 +237,27 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 	homeDir, err := sessions.EnsureHomeDir(workerName)
 	if err != nil {
 		return fmt.Errorf("failed to ensure home directory: %w. Suggestion: Check that .yak-boxes directory exists and is writable", err)
+	}
+
+	if len(inheritedWorktrees) > 0 {
+		seenDestinations := make(map[string]string, len(inheritedWorktrees))
+		for _, repoPath := range inheritedWorktrees {
+			repoName := filepath.Base(repoPath)
+			destPath := filepath.Join(homeDir, repoName)
+			if prior, exists := seenDestinations[repoName]; exists {
+				return fmt.Errorf("duplicate worktree destination %q for repos %q and %q", repoName, prior, repoPath)
+			}
+
+			wtPath, err := worktree.EnsureWorktreeAtPath(repoPath, destPath, worktreeBranch, true)
+			if err != nil {
+				return fmt.Errorf("failed to ensure worktree for repo %s: %w", repoPath, err)
+			}
+			seenDestinations[repoName] = repoPath
+			fmt.Printf("Using worktree: %s\n", wtPath)
+		}
+		absCWD = homeDir
+		worktreePath = homeDir
+		fmt.Printf("Using worker home for multi-repo worktrees: %s\n", homeDir)
 	}
 
 	devConfig, err := devcontainer.LoadConfig(absCWD)
@@ -396,9 +439,67 @@ func findYakPath(startDir string, yakDirName string) (string, error) {
 	return "", fmt.Errorf("no .yaks directory found above %s — use --yak-path to specify", startDir)
 }
 
+func resolveInheritedWorktrees(absYakPath, taskPath string) ([]string, string, error) {
+	taskSlug := types.SlugifyTaskPath(taskPath)
+	branchName := strings.Split(filepath.ToSlash(taskSlug), "/")[0]
+	taskDir, err := findTaskDir(absYakPath, taskSlug)
+	if err != nil {
+		return nil, "", err
+	}
+
+	workspaceRoot := filepath.Dir(absYakPath)
+	searchDir := taskDir
+	for {
+		fieldPath := filepath.Join(searchDir, "worktrees")
+		if info, err := os.Stat(fieldPath); err == nil && !info.IsDir() {
+			data, err := os.ReadFile(fieldPath)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to read %s: %w", fieldPath, err)
+			}
+			raw := strings.TrimSpace(string(data))
+			if raw == "" {
+				return nil, "", nil
+			}
+			entries := strings.Split(raw, ",")
+			repos := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				rel := strings.TrimSpace(entry)
+				if rel == "" {
+					continue
+				}
+
+				repoPath := filepath.Clean(filepath.Join(workspaceRoot, rel))
+				info, err := os.Stat(repoPath)
+				if err != nil || !info.IsDir() {
+					return nil, "", fmt.Errorf("worktrees entry %q does not exist as a directory", rel)
+				}
+				if !worktree.IsGitRepo(repoPath) {
+					return nil, "", fmt.Errorf("worktrees entry %q is not a git repository", rel)
+				}
+				repos = append(repos, repoPath)
+			}
+
+			if len(repos) == 0 {
+				return nil, "", nil
+			}
+			return repos, branchName, nil
+		}
+
+		if searchDir == absYakPath {
+			break
+		}
+		parent := filepath.Dir(searchDir)
+		if parent == searchDir {
+			break
+		}
+		searchDir = parent
+	}
+
+	return nil, "", nil
+}
+
 func init() {
-	spawnCmd.Flags().StringVar(&spawnCWD, "cwd", "", "Working directory for the worker (required)")
-	spawnCmd.MarkFlagRequired("cwd")
+	spawnCmd.Flags().StringVar(&spawnCWD, "cwd", "", "Working directory for the worker (required unless yak worktrees field is set)")
 
 	spawnCmd.Flags().StringVar(&spawnName, "name", "", "Worker name used in logs and metadata (required)")
 	spawnCmd.MarkFlagRequired("name")

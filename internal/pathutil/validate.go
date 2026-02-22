@@ -33,13 +33,9 @@ func ValidatePath(path, baseDir string) error {
 
 	cleanPath := filepath.Clean(path)
 
-	absBaseDir := filepath.Clean(baseDir)
-	if !filepath.IsAbs(absBaseDir) {
-		var err error
-		absBaseDir, err = filepath.Abs(absBaseDir)
-		if err != nil {
-			return fmt.Errorf("cannot resolve baseDir to absolute path: %w", err)
-		}
+	absBaseDir, err := canonicalPath(baseDir)
+	if err != nil {
+		return fmt.Errorf("cannot resolve baseDir to absolute path: %w", err)
 	}
 
 	var absPath string
@@ -48,20 +44,10 @@ func ValidatePath(path, baseDir string) error {
 	} else {
 		absPath = cleanPath
 	}
-
-	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	resolvedPath, err := canonicalPath(absPath)
 	if err != nil {
-		resolvedPath = absPath
+		return fmt.Errorf("cannot resolve path to absolute path: %w", err)
 	}
-
-	if baseInfo, err := os.Stat(absBaseDir); err == nil && (baseInfo.Mode()&os.ModeSymlink) != 0 {
-		if resolved, err := filepath.EvalSymlinks(absBaseDir); err == nil {
-			absBaseDir = resolved
-		}
-	}
-
-	absBaseDir = filepath.Clean(absBaseDir)
-	resolvedPath = filepath.Clean(resolvedPath)
 
 	if resolvedPath == absBaseDir {
 		return nil
@@ -72,4 +58,29 @@ func ValidatePath(path, baseDir string) error {
 	}
 
 	return nil
+}
+
+func canonicalPath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	// EvalSymlinks fails for non-existent files; in that case, resolve the
+	// existing parent and then re-append the final element.
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		return filepath.Clean(resolvedPath), nil
+	}
+	if !os.IsNotExist(err) {
+		return filepath.Clean(absPath), nil
+	}
+
+	parent := filepath.Dir(absPath)
+	base := filepath.Base(absPath)
+	resolvedParent, parentErr := filepath.EvalSymlinks(parent)
+	if parentErr != nil {
+		return filepath.Clean(absPath), nil
+	}
+	return filepath.Clean(filepath.Join(resolvedParent, base)), nil
 }

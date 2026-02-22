@@ -13,7 +13,7 @@ import (
 )
 
 func TestSpawnFlags(t *testing.T) {
-	// Verify required flags are registered
+	// Verify core flags are registered
 	assert.NotNil(t, spawnCmd.Flags().Lookup("cwd"))
 	assert.NotNil(t, spawnCmd.Flags().Lookup("name"))
 
@@ -71,28 +71,8 @@ func TestSpawnValidation(t *testing.T) {
 		errMsg    string
 	}{
 		{
-			name:      "missing both cwd and name",
-			cwd:       "",
-			spawnName: "",
-			mode:      "build",
-			resources: "default",
-			runtime:   "auto",
-			wantErr:   true,
-			errMsg:    "Validation errors",
-		},
-		{
-			name:      "missing cwd",
-			cwd:       "",
-			spawnName: "test-worker",
-			mode:      "build",
-			resources: "default",
-			runtime:   "auto",
-			wantErr:   true,
-			errMsg:    "--cwd is required",
-		},
-		{
 			name:      "missing name",
-			cwd:       "/tmp/test",
+			cwd:       "",
 			spawnName: "",
 			mode:      "build",
 			resources: "default",
@@ -284,7 +264,6 @@ func TestSpawnValidationBatching(t *testing.T) {
 	errMsg := err.Error()
 
 	assert.Contains(t, errMsg, "Validation errors")
-	assert.Contains(t, errMsg, "--cwd is required")
 	assert.Contains(t, errMsg, "--name is required")
 	assert.Contains(t, errMsg, "--mode must be")
 	assert.Contains(t, errMsg, "--resources must be")
@@ -426,6 +405,66 @@ func TestFindYakPath(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no .yaks directory found above")
 		assert.Contains(t, err.Error(), "--yak-path")
+	})
+}
+
+func TestResolveInheritedWorktrees(t *testing.T) {
+	workspace := t.TempDir()
+	absYakPath := filepath.Join(workspace, ".yaks")
+	taskDir := filepath.Join(absYakPath, "sc-12345", "child-task")
+	repoA := filepath.Join(workspace, "repos", "releng", "release")
+	repoB := filepath.Join(workspace, "repos", "releng", "monix")
+
+	assert.NoError(t, os.MkdirAll(taskDir, 0755))
+	assert.NoError(t, os.MkdirAll(repoA, 0755))
+	assert.NoError(t, os.MkdirAll(repoB, 0755))
+	assert.NoError(t, os.WriteFile(
+		filepath.Join(absYakPath, "sc-12345", "worktrees"),
+		[]byte("repos/releng/release,repos/releng/monix"),
+		0644,
+	))
+
+	initRepo := func(path string) {
+		cmd := exec.Command("git", "init")
+		cmd.Dir = path
+		assert.NoError(t, cmd.Run())
+	}
+	initRepo(repoA)
+	initRepo(repoB)
+
+	t.Run("inherits worktrees from ancestor and uses ancestor as branch", func(t *testing.T) {
+		gotRepos, gotBranch, err := resolveInheritedWorktrees(absYakPath, "sc-12345/child-task")
+		assert.NoError(t, err)
+		assert.ElementsMatch(t, []string{repoA, repoB}, gotRepos)
+		assert.Equal(t, "sc-12345", gotBranch)
+	})
+
+	t.Run("returns no worktrees when field is absent", func(t *testing.T) {
+		emptyYakPath := filepath.Join(workspace, ".empty-yaks")
+		emptyTaskDir := filepath.Join(emptyYakPath, "sc-54321", "child-task")
+		assert.NoError(t, os.MkdirAll(emptyTaskDir, 0755))
+
+		gotRepos, gotBranch, err := resolveInheritedWorktrees(emptyYakPath, "sc-54321/child-task")
+		assert.NoError(t, err)
+		assert.Empty(t, gotRepos)
+		assert.Empty(t, gotBranch)
+	})
+
+	t.Run("returns an error for non-git worktree paths", func(t *testing.T) {
+		badYakPath := filepath.Join(workspace, ".bad-yaks")
+		badTaskDir := filepath.Join(badYakPath, "sc-99999", "child-task")
+		notGitRepo := filepath.Join(workspace, "repos", "releng", "not-git")
+		assert.NoError(t, os.MkdirAll(badTaskDir, 0755))
+		assert.NoError(t, os.MkdirAll(notGitRepo, 0755))
+		assert.NoError(t, os.WriteFile(
+			filepath.Join(badYakPath, "sc-99999", "worktrees"),
+			[]byte("repos/releng/not-git"),
+			0644,
+		))
+
+		_, _, err := resolveInheritedWorktrees(badYakPath, "sc-99999/child-task")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a git repository")
 	})
 }
 

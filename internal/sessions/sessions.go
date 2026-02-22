@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,6 +20,7 @@ const (
 
 var (
 	ErrSessionNotFound = fmt.Errorf("session not found")
+	sessionsMu         sync.RWMutex
 )
 
 // Session represents an active worker session
@@ -39,12 +41,26 @@ type Session struct {
 type Sessions map[string]Session
 
 func getRoot() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
+	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(output)), nil
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if _, err := os.Stat(gitPath); err == nil {
+			if runtime.GOOS == "darwin" && strings.HasPrefix(dir, "/private/var/") {
+				return strings.TrimPrefix(dir, "/private"), nil
+			}
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("not a git repository")
 }
 
 func ensureYakBoxesDir() error {
@@ -88,6 +104,12 @@ func GetYakBoxesDir() (string, error) {
 
 // Load loads sessions from sessions.json
 func Load() (Sessions, error) {
+	sessionsMu.RLock()
+	defer sessionsMu.RUnlock()
+	return loadUnlocked()
+}
+
+func loadUnlocked() (Sessions, error) {
 	path, err := getSessionsPath()
 	if err != nil {
 		return nil, err
@@ -111,6 +133,12 @@ func Load() (Sessions, error) {
 
 // Save saves sessions to sessions.json
 func Save(sessions Sessions) error {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+	return saveUnlocked(sessions)
+}
+
+func saveUnlocked(sessions Sessions) error {
 	if err := ensureYakBoxesDir(); err != nil {
 		return fmt.Errorf("failed to ensure yak-boxes dir: %w", err)
 	}
@@ -125,8 +153,13 @@ func Save(sessions Sessions) error {
 		return fmt.Errorf("failed to marshal sessions: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write sessions file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize sessions file: %w", err)
 	}
 
 	return nil
@@ -134,24 +167,30 @@ func Save(sessions Sessions) error {
 
 // Register adds a new session to sessions.json
 func Register(sessionID string, session Session) error {
-	sessions, err := Load()
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+
+	sessions, err := loadUnlocked()
 	if err != nil {
 		return err
 	}
 
 	sessions[sessionID] = session
-	return Save(sessions)
+	return saveUnlocked(sessions)
 }
 
 // Unregister removes a session from sessions.json
 func Unregister(sessionID string) error {
-	sessions, err := Load()
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+
+	sessions, err := loadUnlocked()
 	if err != nil {
 		return err
 	}
 
 	delete(sessions, sessionID)
-	return Save(sessions)
+	return saveUnlocked(sessions)
 }
 
 // Get returns a session by ID

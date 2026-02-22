@@ -188,3 +188,55 @@ func EnsureWorktree(projectPath, taskPath string, verbose bool) (string, error) 
 
 	return worktreePath, nil
 }
+
+// EnsureWorktreeAtPath ensures a worktree exists at the requested destination.
+// If the destination already contains a git worktree, it checks out (or creates)
+// the target branch in place.
+func EnsureWorktreeAtPath(projectPath, destinationPath, branchName string, verbose bool) (string, error) {
+	if !IsGitRepo(projectPath) {
+		return "", fmt.Errorf("not a git repository: %s", projectPath)
+	}
+
+	if info, err := os.Stat(destinationPath); err == nil {
+		if !info.IsDir() {
+			return "", fmt.Errorf("destination exists and is not a directory: %s", destinationPath)
+		}
+		if !IsGitRepo(destinationPath) {
+			return "", fmt.Errorf("destination exists and is not a git repository: %s", destinationPath)
+		}
+
+		currentBranch, err := GetCurrentBranch(destinationPath)
+		if err == nil && currentBranch == branchName {
+			return destinationPath, nil
+		}
+
+		checkoutCmd := exec.Command("git", "-C", destinationPath, "checkout", branchName)
+		if verbose {
+			fmt.Fprintf(os.Stderr, "+ git -C %s checkout %s\n", destinationPath, branchName)
+			checkoutCmd.Stdout = os.Stderr
+			checkoutCmd.Stderr = os.Stderr
+		}
+		if err := checkoutCmd.Run(); err == nil {
+			return destinationPath, nil
+		}
+
+		createCmd := exec.Command("git", "-C", destinationPath, "checkout", "-b", branchName)
+		if verbose {
+			fmt.Fprintf(os.Stderr, "+ git -C %s checkout -b %s\n", destinationPath, branchName)
+			createCmd.Stdout = os.Stderr
+			createCmd.Stderr = os.Stderr
+		}
+		if err := createCmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to checkout branch %s in existing worktree: %w", branchName, err)
+		}
+		return destinationPath, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destinationPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create parent directory for worktree: %w", err)
+	}
+	if err := CreateWorktree(projectPath, destinationPath, branchName, verbose); err != nil {
+		return "", fmt.Errorf("failed to create worktree: %w", err)
+	}
+	return destinationPath, nil
+}

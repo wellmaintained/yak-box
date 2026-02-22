@@ -180,7 +180,7 @@ func TestSave(t *testing.T) {
 					SpawnedAt:     time.Now(),
 					Runtime:       "runtime1",
 					CWD:           "/path/to/cwd",
-					WorkerName:  "worker1",
+					WorkerName:    "worker1",
 					DisplayName:   "Full Session",
 					ZellijSession: "zellij_session1",
 				},
@@ -812,7 +812,7 @@ func TestGetHomeDir(t *testing.T) {
 			}
 
 			expectedPath := filepath.Join(tmpDir, yakBoxesDir, homeDir, tt.persona)
-			if homePath != expectedPath {
+			if !pathsEquivalentForTest(homePath, expectedPath) {
 				t.Errorf("GetHomeDir() = %q, expected %q", homePath, expectedPath)
 			}
 		})
@@ -1066,7 +1066,7 @@ func TestSessionRoundtrip(t *testing.T) {
 					SpawnedAt:     time.Now(),
 					Runtime:       "runtime_full",
 					CWD:           "/path/to/cwd",
-					WorkerName:  "worker_full",
+					WorkerName:    "worker_full",
 					DisplayName:   "Full Session",
 					ZellijSession: "zellij1",
 				},
@@ -1301,7 +1301,7 @@ func TestGetHomeDirReturnsCorrectPath(t *testing.T) {
 	}
 
 	expected := filepath.Join(tmpDir, yakBoxesDir, homeDir, workerName)
-	if homePath != expected {
+	if !pathsEquivalentForTest(homePath, expected) {
 		t.Errorf("GetHomeDir() = %q, expected %q", homePath, expected)
 	}
 
@@ -1316,6 +1316,28 @@ func TestGetHomeDirReturnsCorrectPath(t *testing.T) {
 	if !strings.Contains(homePath, workerName) {
 		t.Errorf("home path should contain workerName")
 	}
+}
+
+func pathsEquivalentForTest(a, b string) bool {
+	canonical := func(path string) string {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return filepath.Clean(path)
+		}
+		resolved, err := filepath.EvalSymlinks(absPath)
+		if err == nil {
+			return filepath.Clean(resolved)
+		}
+
+		parent := filepath.Dir(absPath)
+		base := filepath.Base(absPath)
+		resolvedParent, parentErr := filepath.EvalSymlinks(parent)
+		if parentErr != nil {
+			return filepath.Clean(absPath)
+		}
+		return filepath.Clean(filepath.Join(resolvedParent, base))
+	}
+	return canonical(a) == canonical(b)
 }
 
 func TestListHomesWithDifferentStructures(t *testing.T) {
@@ -1519,7 +1541,7 @@ func TestSessionTypeFields(t *testing.T) {
 		SpawnedAt:     time.Now(),
 		Runtime:       "test_runtime",
 		CWD:           "/test/path",
-		WorkerName:  "test_worker",
+		WorkerName:    "test_worker",
 		DisplayName:   "Test Display Name",
 		ZellijSession: "test_zellij",
 	}

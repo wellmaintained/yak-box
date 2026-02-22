@@ -1,8 +1,59 @@
 package worktree
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
+
+func initRepoWithCommit(t *testing.T, repoPath string) {
+	t.Helper()
+	assert.NoError(t, os.MkdirAll(repoPath, 0755))
+
+	cmd := exec.Command("git", "init")
+	cmd.Dir = repoPath
+	assert.NoError(t, cmd.Run())
+
+	assert.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("test\n"), 0644))
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	assert.NoError(t, cmd.Run())
+
+	cmd = exec.Command("git", "commit", "-m", "init")
+	cmd.Dir = repoPath
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=yak-box-test",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=yak-box-test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	assert.NoError(t, cmd.Run())
+}
+
+func TestEnsureWorktreeAtPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	repoPath := filepath.Join(tmpDir, "repo")
+	destPath := filepath.Join(tmpDir, "worker-home", "repo")
+
+	initRepoWithCommit(t, repoPath)
+
+	wtPath, err := EnsureWorktreeAtPath(repoPath, destPath, "sc-12345", false)
+	assert.NoError(t, err)
+	assert.Equal(t, destPath, wtPath)
+	assert.True(t, IsGitRepo(destPath))
+
+	branch, err := GetCurrentBranch(destPath)
+	assert.NoError(t, err)
+	assert.Equal(t, "sc-12345", branch)
+
+	wtPath, err = EnsureWorktreeAtPath(repoPath, destPath, "sc-12345", false)
+	assert.NoError(t, err)
+	assert.Equal(t, destPath, wtPath)
+}
 
 func TestDetermineWorktreePath(t *testing.T) {
 	tests := []struct {
