@@ -98,8 +98,9 @@ exec opencode --prompt "$PROMPT" --agent build
 		zellijCmd = exec.Command("zellij", "action", "new-tab", "--layout", layoutFile, "--name", worker.DisplayName, "--cwd", worker.CWD)
 	}
 
-	if err := zellijCmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to create zellij tab: %w", err)
+	output, err := zellijCmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to create zellij tab: %w (output: %s)", err, string(output))
 	}
 
 	return pidFile, nil
