@@ -23,9 +23,10 @@ type Worker struct {
 	SpawnedAt     time.Time
 	SessionName   string
 	WorktreePath  string // Path to git worktree (if using --auto-worktree)
-	PidFile         string // Path to PID file for native workers
-	Tool      string // Tool to use: "opencode" or "claude"
-	AgentName string // Claude Code agent name (when Tool == "claude")
+	PidFile       string // Path to PID file for native workers
+	Tool          string // Tool to use: "opencode", "claude", or "cursor"
+	Model         string // Optional model name passed through to the selected tool
+	AgentName     string // Claude Code agent name (when Tool == "claude")
 }
 
 // SlugifyTaskPath converts a task display name path (e.g. "fixes/tab emoji")

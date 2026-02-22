@@ -21,6 +21,7 @@ func TestSpawnFlags(t *testing.T) {
 	assert.NotNil(t, spawnCmd.Flags().Lookup("yaks"))
 	assert.NotNil(t, spawnCmd.Flags().Lookup("yak-path"))
 	assert.NotNil(t, spawnCmd.Flags().Lookup("runtime"))
+	assert.NotNil(t, spawnCmd.Flags().Lookup("model"))
 
 	// Verify flag defaults
 	mode, _ := spawnCmd.Flags().GetString("mode")
@@ -34,6 +35,9 @@ func TestSpawnFlags(t *testing.T) {
 
 	runtime, _ := spawnCmd.Flags().GetString("runtime")
 	assert.Equal(t, "auto", runtime)
+
+	model, _ := spawnCmd.Flags().GetString("model")
+	assert.Equal(t, "", model)
 }
 
 func TestFormatDisplayName(t *testing.T) {
@@ -244,6 +248,24 @@ func TestSpawnToolOptions(t *testing.T) {
 	})
 }
 
+func TestResolveSpawnModel(t *testing.T) {
+	t.Run("respects explicit model override", func(t *testing.T) {
+		assert.Equal(t, "haiku", resolveSpawnModel("claude", "haiku"))
+	})
+
+	t.Run("uses claude default model", func(t *testing.T) {
+		assert.Equal(t, "sonnet 4.6", resolveSpawnModel("claude", ""))
+	})
+
+	t.Run("uses cursor default model", func(t *testing.T) {
+		assert.Equal(t, "auto", resolveSpawnModel("cursor", ""))
+	})
+
+	t.Run("uses no default for opencode", func(t *testing.T) {
+		assert.Equal(t, "", resolveSpawnModel("opencode", ""))
+	})
+}
+
 func TestSpawnValidationBatching(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().AddFlagSet(spawnCmd.Flags())
@@ -280,6 +302,7 @@ func TestSpawnFlagTypes(t *testing.T) {
 		{name: "resources string flag", flagName: "resources", want: "default"},
 		{name: "yak-path string flag", flagName: "yak-path", want: ".yaks"},
 		{name: "runtime string flag", flagName: "runtime", want: "auto"},
+		{name: "model string flag", flagName: "model", want: ""},
 		{name: "clean bool flag", flagName: "clean", want: false},
 		{name: "auto-worktree bool flag", flagName: "auto-worktree", want: false},
 	}

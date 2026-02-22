@@ -929,8 +929,8 @@ func TestSpawnSandboxedWorker_WorktreePathOptional(t *testing.T) {
 	}
 	contentStr := string(content)
 
-	if strings.Count(contentStr, "-v") > strings.Count(contentStr, "yak-shaver") {
-		t.Error("run.sh has unexpected mounts without worktree")
+	if strings.Contains(contentStr, "-v \":") {
+		t.Error("run.sh contains an empty mount entry when worktree path is unset")
 	}
 }
 

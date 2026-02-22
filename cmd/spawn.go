@@ -30,8 +30,14 @@ var (
 	spawnYakPath      string
 	spawnRuntime      string
 	spawnTool         string
+	spawnModel        string
 	spawnClean        bool
 	spawnAutoWorktree bool
+)
+
+const (
+	defaultClaudeModel = "sonnet 4.6"
+	defaultCursorModel = "auto"
 )
 
 var spawnCmd = &cobra.Command{
@@ -113,6 +119,21 @@ func formatDisplayName(workerName, spawnName string) string {
 		return workerName
 	}
 	return fmt.Sprintf("%s 🪒🦬 %s", workerName, trimmedName)
+}
+
+func resolveSpawnModel(tool, model string) string {
+	if strings.TrimSpace(model) != "" {
+		return model
+	}
+
+	switch tool {
+	case "claude":
+		return defaultClaudeModel
+	case "cursor":
+		return defaultCursorModel
+	default:
+		return ""
+	}
 }
 
 func runSpawn(ctx context.Context, args []string) error {
@@ -197,21 +218,26 @@ func runSpawn(ctx context.Context, args []string) error {
 			agentName = lowerName + "-worker"
 		}
 	}
+	if spawnTool == "opencode" && spawnModel != "" {
+		ui.Warning("⚠️  --model is currently ignored for --tool opencode\n")
+	}
+	resolvedModel := resolveSpawnModel(spawnTool, spawnModel)
 
 	worker := &types.Worker{
-		Name:            spawnName,
-		WorkerName:      workerName,
-		DisplayName:     displayName,
-		ContainerName:   "yak-worker-" + sanitizedName,
-		Runtime:         runtimeType,
-		CWD:             absCWD,
-		YakPath:         absYakPath,
-		Tasks:           spawnYaks,
-		SpawnedAt:       time.Now(),
-		SessionName:     spawnSession,
-		WorktreePath:    worktreePath,
-		Tool:      spawnTool,
-		AgentName: agentName,
+		Name:          spawnName,
+		WorkerName:    workerName,
+		DisplayName:   displayName,
+		ContainerName: "yak-worker-" + sanitizedName,
+		Runtime:       runtimeType,
+		CWD:           absCWD,
+		YakPath:       absYakPath,
+		Tasks:         spawnYaks,
+		SpawnedAt:     time.Now(),
+		SessionName:   spawnSession,
+		WorktreePath:  worktreePath,
+		Tool:          spawnTool,
+		Model:         resolvedModel,
+		AgentName:     agentName,
 	}
 
 	if runtimeType == "sandboxed" {
@@ -335,6 +361,7 @@ func init() {
 	spawnCmd.Flags().StringVar(&spawnYakPath, "yak-path", ".yaks", "Path to task state directory")
 	spawnCmd.Flags().StringVar(&spawnRuntime, "runtime", "auto", "Runtime: 'auto', 'sandboxed', or 'native'")
 	spawnCmd.Flags().StringVar(&spawnTool, "tool", "claude", "AI tool: 'opencode', 'claude', or 'cursor'")
+	spawnCmd.Flags().StringVar(&spawnModel, "model", "", "Optional model override (defaults: claude='sonnet 4.6', cursor='auto')")
 	spawnCmd.Flags().BoolVar(&spawnClean, "clean", false, "Clean worker home directory before spawning")
 	spawnCmd.Flags().BoolVar(&spawnAutoWorktree, "auto-worktree", false, "Automatically create and use git worktree for the task")
 }

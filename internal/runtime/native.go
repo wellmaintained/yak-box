@@ -35,32 +35,38 @@ func SpawnNativeWorker(worker *types.Worker, prompt string, homeDir string) (pid
 
 	if worker.Tool == "claude" {
 		paneName = "claude (build)"
-		// Build claude command with agent prompt if available
-		claudeArgs := []string{
-			"--dangerously-skip-permissions",
-		}
-		if worker.AgentName != "" {
-			claudeArgs = append([]string{"--agent", worker.AgentName}, claudeArgs...)
-		}
-		claudeArgsStr := strings.Join(claudeArgs, " ")
-
 		// Clean CLAUDECODE env var to avoid nested session conflicts
 		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash
 export YAK_PATH="%s"
 unset CLAUDECODE
+AGENT_NAME=%q
+MODEL=%q
+PROMPT_FILE=%q
+CLAUDE_ARGS=(--dangerously-skip-permissions)
+if [[ -n "$AGENT_NAME" ]]; then
+  CLAUDE_ARGS=(--agent "$AGENT_NAME" "${CLAUDE_ARGS[@]}")
+fi
+if [[ -n "$MODEL" ]]; then
+  CLAUDE_ARGS+=(--model "$MODEL")
+fi
 # Write PID before exec so yak-box stop can find and kill the process tree.
 echo $$ > "%s"
-exec claude %s @"%s"
-`, worker.YakPath, pidFile, claudeArgsStr, promptFile)
+exec claude "${CLAUDE_ARGS[@]}" @"$PROMPT_FILE"
+`, worker.YakPath, worker.AgentName, worker.Model, promptFile, pidFile)
 	} else if worker.Tool == "cursor" {
 		paneName = "cursor (build)"
 		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash
 export YAK_PATH="%s"
 PROMPT="$(cat "%s")"
+MODEL=%q
 # Write PID before exec so yak-box stop can find and kill the process tree.
 echo $$ > "%s"
-exec agent --force --workspace "%s" "$PROMPT"
-`, worker.YakPath, promptFile, pidFile, worker.CWD)
+if [[ -n "$MODEL" ]]; then
+  exec agent --force --model "$MODEL" --workspace "%s" "$PROMPT"
+else
+  exec agent --force --workspace "%s" "$PROMPT"
+fi
+`, worker.YakPath, promptFile, worker.Model, pidFile, worker.CWD, worker.CWD)
 	} else {
 		paneName = "opencode (build)"
 		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash

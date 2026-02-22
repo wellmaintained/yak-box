@@ -14,17 +14,47 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-/home/yakob/yak-box}"
 COST_DIR="${WORKSPACE_ROOT}/.worker-costs"
 mkdir -p "$COST_DIR"
 
-PROMPT="$(cat /opt/worker/prompt.txt)"
-opencode --prompt "$PROMPT" --agent "$1"
+PROMPT_FILE="/opt/worker/prompt.txt"
+PROMPT="$(cat "$PROMPT_FILE")"
+TOOL="${YAK_TOOL:-opencode}"
+MODEL="${YAK_MODEL:-}"
+AGENT_NAME="${YAK_AGENT_NAME:-}"
+WORKSPACE="${YAK_WORKSPACE:-$PWD}"
+
+case "$TOOL" in
+  claude)
+    CLAUDE_ARGS=(--dangerously-skip-permissions)
+    if [[ -n "$AGENT_NAME" ]]; then
+      CLAUDE_ARGS=(--agent "$AGENT_NAME" "${CLAUDE_ARGS[@]}")
+    fi
+    if [[ -n "$MODEL" ]]; then
+      CLAUDE_ARGS+=(--model "$MODEL")
+    fi
+    claude "${CLAUDE_ARGS[@]}" @"$PROMPT_FILE"
+    ;;
+  cursor)
+    if [[ -n "$MODEL" ]]; then
+      agent --force --model "$MODEL" --workspace "$WORKSPACE" "$PROMPT"
+    else
+      agent --force --workspace "$WORKSPACE" "$PROMPT"
+    fi
+    ;;
+  *)
+    opencode --prompt "$PROMPT" --agent "$1"
+    ;;
+esac
 EXIT_CODE=$?
 
-WORKER="${WORKER_NAME:-unknown}"
-TS="$(date -u +%Y%m%dT%H%M%SZ)"
-SID="$(opencode session list 2>/dev/null | tail -1 | awk '{print $1}')"
-if [[ -n "$SID" && "$SID" != "Session" ]]; then
-  opencode export "$SID" > "${COST_DIR}/${WORKER}-${TS}.json" 2>/dev/null
+if [[ "$TOOL" == "opencode" ]]; then
+  WORKER="${WORKER_NAME:-unknown}"
+  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+  SID="$(opencode session list 2>/dev/null | tail -1 | awk '{print $1}')"
+  if [[ -n "$SID" && "$SID" != "Session" ]]; then
+    opencode export "$SID" > "${COST_DIR}/${WORKER}-${TS}.json" 2>/dev/null
+  fi
+  opencode stats --models > "${COST_DIR}/${WORKER}-${TS}.stats.txt" 2>/dev/null
 fi
-opencode stats --models > "${COST_DIR}/${WORKER}-${TS}.stats.txt" 2>/dev/null
+
 exit $EXIT_CODE
 `
 }
@@ -111,6 +141,14 @@ func generateRunScript(cfg *spawnConfig, workspaceRoot, promptFile, innerScript,
 
 	sb.WriteString(fmt.Sprintf("\t-e WORKER_NAME=\"%s\" \\\n", cfg.worker.WorkerName))
 	sb.WriteString(fmt.Sprintf("\t-e YAK_PATH=\"%s\" \\\n", cfg.worker.YakPath))
+	sb.WriteString(fmt.Sprintf("\t-e YAK_TOOL=\"%s\" \\\n", cfg.worker.Tool))
+	sb.WriteString(fmt.Sprintf("\t-e YAK_WORKSPACE=\"%s\" \\\n", cfg.worker.CWD))
+	if cfg.worker.Model != "" {
+		sb.WriteString(fmt.Sprintf("\t-e YAK_MODEL=\"%s\" \\\n", cfg.worker.Model))
+	}
+	if cfg.worker.AgentName != "" {
+		sb.WriteString(fmt.Sprintf("\t-e YAK_AGENT_NAME=\"%s\" \\\n", cfg.worker.AgentName))
+	}
 
 	// Devcontainer envs
 	imageName := "yak-worker:latest"
