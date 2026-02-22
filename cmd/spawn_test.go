@@ -36,6 +36,23 @@ func TestSpawnFlags(t *testing.T) {
 	assert.Equal(t, "auto", runtime)
 }
 
+func TestFormatDisplayName(t *testing.T) {
+	t.Run("uses worker and spawn names", func(t *testing.T) {
+		displayName := formatDisplayName("Yakov", "cursor-test")
+		assert.Equal(t, "Yakov 🪒🦬 cursor-test", displayName)
+	})
+
+	t.Run("trims spawn name", func(t *testing.T) {
+		displayName := formatDisplayName("Yakov", "  cursor test  ")
+		assert.Equal(t, "Yakov 🪒🦬 cursor test", displayName)
+	})
+
+	t.Run("falls back to worker name when spawn name empty", func(t *testing.T) {
+		displayName := formatDisplayName("Yakov", "   ")
+		assert.Equal(t, "Yakov", displayName)
+	})
+}
+
 func TestSpawnValidation(t *testing.T) {
 	tests := []struct {
 		name      string

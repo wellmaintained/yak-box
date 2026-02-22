@@ -107,6 +107,14 @@ func pickWorkerName() string {
 	return types.WorkerNames[rand.Intn(len(types.WorkerNames))]
 }
 
+func formatDisplayName(workerName, spawnName string) string {
+	trimmedName := strings.TrimSpace(spawnName)
+	if trimmedName == "" {
+		return workerName
+	}
+	return fmt.Sprintf("%s 🪒🦬 %s", workerName, trimmedName)
+}
+
 func runSpawn(ctx context.Context, args []string) error {
 	runtimeType := spawnRuntime
 	if runtimeType == "auto" {
@@ -169,19 +177,7 @@ func runSpawn(ctx context.Context, args []string) error {
 
 	workerPrompt := prompt.BuildPrompt(spawnMode, spawnYakPath, userPrompt, spawnYaks)
 
-	yakTitle := ""
-	if len(spawnYaks) > 0 {
-		yakTitle = spawnYaks[0]
-		for i := 1; i < len(spawnYaks); i++ {
-			_, name := filepath.Split(spawnYaks[i])
-			yakTitle += ", " + name
-		}
-	}
-
-	displayName := workerName
-	if yakTitle != "" {
-		displayName += " 🪒🦬 " + yakTitle
-	}
+	displayName := formatDisplayName(workerName, spawnName)
 
 	sanitizedName := strings.ReplaceAll(spawnName, " ", "-")
 	sanitizedName = strings.Map(func(r rune) rune {
