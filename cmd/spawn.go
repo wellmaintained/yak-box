@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,7 +37,7 @@ var (
 )
 
 const (
-	defaultClaudeModel = "sonnet 4.6"
+	defaultClaudeModel = "default"
 	defaultCursorModel = "auto"
 )
 
@@ -102,15 +103,39 @@ Tool selection:
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := runSpawn(cmd.Context(), args); err != nil {
+		if err := runSpawn(cmd, cmd.Context(), args); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(errors.GetExitCode(err))
 		}
 	},
 }
 
+const lastPersonaFile = ".last-persona"
+
+// pickWorkerName selects the next worker name in round-robin order so consecutive
+// spawns get different personas. State is stored in .yak-boxes/.last-persona.
+// Falls back to random if the state file cannot be read or written (e.g. not in a git repo).
 func pickWorkerName() string {
-	return types.WorkerNames[rand.Intn(len(types.WorkerNames))]
+	n := len(types.WorkerNames)
+	if n == 0 {
+		return ""
+	}
+	dir, err := sessions.GetYakBoxesDir()
+	if err != nil {
+		return types.WorkerNames[rand.Intn(n)]
+	}
+	path := filepath.Join(dir, lastPersonaFile)
+	data, err := os.ReadFile(path)
+	idx := 0
+	if err == nil {
+		idx, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+		if idx < 0 || idx >= n {
+			idx = 0
+		}
+	}
+	next := (idx + 1) % n
+	_ = os.WriteFile(path, []byte(strconv.Itoa(next)), 0644)
+	return types.WorkerNames[idx]
 }
 
 func formatDisplayName(workerName, spawnName string) string {
@@ -136,7 +161,7 @@ func resolveSpawnModel(tool, model string) string {
 	}
 }
 
-func runSpawn(ctx context.Context, args []string) error {
+func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 	runtimeType := spawnRuntime
 	if runtimeType == "auto" {
 		runtimeType = runtime.DetectRuntime()
@@ -150,9 +175,17 @@ func runSpawn(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to resolve working directory: %w. Suggestion: Ensure --cwd path is valid and accessible", err)
 	}
 
-	absYakPath, err := filepath.Abs(spawnYakPath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve yak path: %w. Suggestion: Ensure --yak-path exists and is accessible (default: .yaks)", err)
+	var absYakPath string
+	if cmd.Flags().Changed("yak-path") {
+		absYakPath, err = filepath.Abs(spawnYakPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve yak path: %w. Suggestion: Ensure --yak-path exists and is accessible", err)
+		}
+	} else {
+		absYakPath, err = findYakPath(absCWD, filepath.Base(spawnYakPath))
+		if err != nil {
+			return fmt.Errorf("No .yaks found above %s. Use --yak-path to specify explicitly", absCWD)
+		}
 	}
 
 	worktreePath := ""
@@ -345,6 +378,24 @@ func findTaskDir(yakPath, taskSlug string) (string, error) {
 	return matches[0], nil
 }
 
+// findYakPath walks up from startDir looking for a directory named yakDirName,
+// similar to how git finds .git. Returns the full path if found, error if not.
+func findYakPath(startDir string, yakDirName string) (string, error) {
+	dir := startDir
+	for {
+		candidate := filepath.Join(dir, yakDirName)
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("no .yaks directory found above %s — use --yak-path to specify", startDir)
+}
+
 func init() {
 	spawnCmd.Flags().StringVar(&spawnCWD, "cwd", "", "Working directory for the worker (required)")
 	spawnCmd.MarkFlagRequired("cwd")
@@ -361,7 +412,7 @@ func init() {
 	spawnCmd.Flags().StringVar(&spawnYakPath, "yak-path", ".yaks", "Path to task state directory")
 	spawnCmd.Flags().StringVar(&spawnRuntime, "runtime", "auto", "Runtime: 'auto', 'sandboxed', or 'native'")
 	spawnCmd.Flags().StringVar(&spawnTool, "tool", "claude", "AI tool: 'opencode', 'claude', or 'cursor'")
-	spawnCmd.Flags().StringVar(&spawnModel, "model", "", "Optional model override (defaults: claude='sonnet 4.6', cursor='auto')")
+	spawnCmd.Flags().StringVar(&spawnModel, "model", "", "Optional model override (defaults: claude='default', cursor='auto')")
 	spawnCmd.Flags().BoolVar(&spawnClean, "clean", false, "Clean worker home directory before spawning")
 	spawnCmd.Flags().BoolVar(&spawnAutoWorktree, "auto-worktree", false, "Automatically create and use git worktree for the task")
 }

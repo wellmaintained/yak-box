@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/wellmaintained/yak-box/internal/errors"
+	"github.com/wellmaintained/yak-box/pkg/types"
 )
 
 func TestSpawnFlags(t *testing.T) {
@@ -254,7 +256,7 @@ func TestResolveSpawnModel(t *testing.T) {
 	})
 
 	t.Run("uses claude default model", func(t *testing.T) {
-		assert.Equal(t, "sonnet 4.6", resolveSpawnModel("claude", ""))
+		assert.Equal(t, "default", resolveSpawnModel("claude", ""))
 	})
 
 	t.Run("uses cursor default model", func(t *testing.T) {
@@ -392,6 +394,84 @@ func TestFindTaskDir(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no directory matching")
 	})
+}
+
+func TestFindYakPath(t *testing.T) {
+	// Create a nested dir structure:
+	// tmpDir/
+	//   .yaks/           <- the target
+	//   sub/
+	//     deep/          <- startDir for walk-up tests
+	tmpDir := t.TempDir()
+	yakDir := filepath.Join(tmpDir, ".yaks")
+	os.MkdirAll(yakDir, 0755)
+	deepDir := filepath.Join(tmpDir, "sub", "deep")
+	os.MkdirAll(deepDir, 0755)
+
+	t.Run("finds .yaks at start dir", func(t *testing.T) {
+		got, err := findYakPath(tmpDir, ".yaks")
+		assert.NoError(t, err)
+		assert.Equal(t, yakDir, got)
+	})
+
+	t.Run("finds .yaks two levels up", func(t *testing.T) {
+		got, err := findYakPath(deepDir, ".yaks")
+		assert.NoError(t, err)
+		assert.Equal(t, yakDir, got)
+	})
+
+	t.Run("returns error when no .yaks exists", func(t *testing.T) {
+		noYakDir := t.TempDir()
+		_, err := findYakPath(noYakDir, ".yaks")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no .yaks directory found above")
+		assert.Contains(t, err.Error(), "--yak-path")
+	})
+}
+
+func TestPickWorkerNameRoundRobin(t *testing.T) {
+	// Run from a temp git repo so GetYakBoxesDir() succeeds and we use .last-persona
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, "repo")
+	assert.NoError(t, os.MkdirAll(gitDir, 0755))
+	// Initialize git so getRoot() returns gitDir
+	initCmd := exec.Command("git", "init")
+	initCmd.Dir = gitDir
+	initCmd.Stdout = os.Stdout
+	initCmd.Stderr = os.Stderr
+	assert.NoError(t, initCmd.Run())
+	origWd, err := os.Getwd()
+	assert.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	assert.NoError(t, os.Chdir(gitDir))
+
+	// Remove .last-persona if present so we start from a known state
+	_ = os.Remove(filepath.Join(gitDir, ".yak-boxes", lastPersonaFile))
+
+	var names []string
+	for i := 0; i < 8; i++ {
+		names = append(names, pickWorkerName())
+	}
+	// Consecutive spawns must get different personas
+	for i := 1; i < len(names); i++ {
+		assert.NotEqual(t, names[i-1], names[i], "consecutive spawns at %d and %d should differ", i-1, i)
+	}
+	// First four should be a permutation of WorkerNames; second four same cycle
+	expect := make(map[string]int)
+	for _, w := range types.WorkerNames {
+		expect[w] = 0
+	}
+	for i := 0; i < 4; i++ {
+		assert.Contains(t, expect, names[i])
+		expect[names[i]]++
+	}
+	for _, c := range expect {
+		assert.Equal(t, 1, c, "first 4 spawns should each use a different persona")
+	}
+	// Second cycle should match first
+	for i := 0; i < 4; i++ {
+		assert.Equal(t, names[i], names[i+4], "round-robin should repeat after 4")
+	}
 }
 
 func TestSpawnRuntimeOptions(t *testing.T) {

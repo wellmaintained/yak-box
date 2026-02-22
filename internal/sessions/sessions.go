@@ -73,6 +73,19 @@ func getSessionsPath() (string, error) {
 	return filepath.Join(root, yakBoxesDir, sessionsFile), nil
 }
 
+// GetYakBoxesDir returns the path to the .yak-boxes directory (creating it if needed).
+// Callers use it for shared state such as .last-persona.
+func GetYakBoxesDir() (string, error) {
+	if err := ensureYakBoxesDir(); err != nil {
+		return "", err
+	}
+	root, err := getRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, yakBoxesDir), nil
+}
+
 // Load loads sessions from sessions.json
 func Load() (Sessions, error) {
 	path, err := getSessionsPath()
