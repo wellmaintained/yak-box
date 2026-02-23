@@ -310,16 +310,6 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 		return -1
 	}, sanitizedName)
 
-	// Resolve agent name for Claude Code workers
-	agentName := ""
-	if spawnTool == "claude" {
-		// Look for a personality-specific agent file: .claude/agents/<workerName>-worker.md
-		lowerName := strings.ToLower(workerName)
-		candidatePath := filepath.Join(absCWD, ".claude", "agents", lowerName+"-worker.md")
-		if _, err := os.Stat(candidatePath); err == nil {
-			agentName = lowerName + "-worker"
-		}
-	}
 	if spawnTool == "opencode" && spawnModel != "" {
 		ui.Warning("⚠️  --model is currently ignored for --tool opencode\n")
 	}
@@ -339,7 +329,6 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 		WorktreePath:  worktreePath,
 		Tool:          spawnTool,
 		Model:         resolvedModel,
-		AgentName:     agentName,
 	}
 
 	if runtimeType == "sandboxed" {

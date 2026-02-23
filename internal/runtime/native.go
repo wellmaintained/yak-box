@@ -39,20 +39,16 @@ func SpawnNativeWorker(worker *types.Worker, prompt string, homeDir string) (pid
 		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash
 export YAK_PATH="%s"
 unset CLAUDECODE
-AGENT_NAME=%q
 MODEL=%q
 PROMPT_FILE=%q
 CLAUDE_ARGS=(--dangerously-skip-permissions)
-if [[ -n "$AGENT_NAME" ]]; then
-  CLAUDE_ARGS=(--agent "$AGENT_NAME" "${CLAUDE_ARGS[@]}")
-fi
 if [[ -n "$MODEL" ]]; then
   CLAUDE_ARGS+=(--model "$MODEL")
 fi
 # Write PID before exec so yak-box stop can find and kill the process tree.
 echo $$ > "%s"
 exec claude "${CLAUDE_ARGS[@]}" @"$PROMPT_FILE"
-`, worker.YakPath, worker.AgentName, worker.Model, promptFile, pidFile)
+`, worker.YakPath, worker.Model, promptFile, pidFile)
 	} else if worker.Tool == "cursor" {
 		paneName = "cursor (build)"
 		wrapperContent = fmt.Sprintf(`#!/usr/bin/env bash

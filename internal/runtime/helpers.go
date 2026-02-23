@@ -146,10 +146,6 @@ func generateRunScript(cfg *spawnConfig, workspaceRoot, promptFile, innerScript,
 	if cfg.worker.Model != "" {
 		sb.WriteString(fmt.Sprintf("\t-e YAK_MODEL=\"%s\" \\\n", cfg.worker.Model))
 	}
-	if cfg.worker.AgentName != "" {
-		sb.WriteString(fmt.Sprintf("\t-e YAK_AGENT_NAME=\"%s\" \\\n", cfg.worker.AgentName))
-	}
-
 	// Devcontainer envs
 	imageName := "yak-worker:latest"
 	if cfg.devConfig != nil {
