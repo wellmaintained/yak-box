@@ -5,13 +5,17 @@ import (
 	"fmt"
 )
 
-// BuildPrompt assembles the initial prompt for a worker
-func BuildPrompt(mode string, yakPath string, userPrompt string, tasks []string) string {
+// BuildPrompt assembles the initial prompt for a worker.
+// workerName is the persona name (e.g. "Yakueline"); skillNames are the skill folder basenames to reference.
+func BuildPrompt(mode string, yakPath string, userPrompt string, tasks []string, workerName string, skillNames []string) string {
 	var roleDescription string
 	if mode == "plan" {
 		roleDescription = "Your supervisor is Yakob. The yaks are tasks — your job is to scout them and plan the shave. Do NOT pick up the clippers."
 	} else {
 		roleDescription = "Your supervisor is Yakob. The yaks are tasks — your job is to shave them clean."
+	}
+	if workerName != "" {
+		roleDescription = "You are " + workerName + ". " + roleDescription
 	}
 
 	var workflow string
@@ -74,6 +78,15 @@ TASK TRACKER (yx)`, taskList)
 TASK TRACKER (yx)`
 	}
 
+	var skillSection string
+	if len(skillNames) > 0 {
+		skillSection = "\n---\nSKILLS\n\nYou have been given the following skills to guide your work:\n"
+		for _, name := range skillNames {
+			skillSection += fmt.Sprintf("  - %s\n", name)
+		}
+		skillSection += "\nRefer to your skill instructions for guidance on how to approach this work.\n"
+	}
+
 	return fmt.Sprintf(`%s
 
 %s
@@ -97,5 +110,5 @@ Reporting status (IMPORTANT -- the orchestrator monitors these fields):
   - When blocked:   echo "blocked: <reason>" | yx field <name> agent-status
   - When done:      echo "done: <summary>" | yx field <name> agent-status
 
-%s`, roleDescription, userPrompt, taskAssignment, yakPath, workflow)
+%s%s`, roleDescription, userPrompt, taskAssignment, yakPath, workflow, skillSection)
 }

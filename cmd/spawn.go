@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -34,6 +35,7 @@ var (
 	spawnModel        string
 	spawnClean        bool
 	spawnAutoWorktree bool
+	spawnSkills       []string
 )
 
 const (
@@ -88,6 +90,22 @@ Tool selection:
 
 		if spawnTool != "opencode" && spawnTool != "claude" && spawnTool != "cursor" {
 			errs = append(errs, fmt.Errorf("--tool must be 'opencode', 'claude', or 'cursor', got '%s'", spawnTool))
+		}
+
+		for _, skillPath := range spawnSkills {
+			info, err := os.Stat(skillPath)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("--skill %q: folder not found", skillPath))
+				continue
+			}
+			if !info.IsDir() {
+				errs = append(errs, fmt.Errorf("--skill %q: must be a directory", skillPath))
+				continue
+			}
+			skillMD := filepath.Join(skillPath, "SKILL.md")
+			if _, err := os.Stat(skillMD); err != nil {
+				errs = append(errs, fmt.Errorf("--skill %q: missing SKILL.md", skillPath))
+			}
 		}
 
 		if len(errs) > 0 {
@@ -260,6 +278,10 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 		fmt.Printf("Using worker home for multi-repo worktrees: %s\n", homeDir)
 	}
 
+	if err := copySkillsToHome(spawnSkills, homeDir, spawnTool); err != nil {
+		return fmt.Errorf("failed to copy skills: %w", err)
+	}
+
 	devConfig, err := devcontainer.LoadConfig(absCWD)
 	if err != nil {
 		return fmt.Errorf("failed to load devcontainer config: %w. Suggestion: Ensure .devcontainer/devcontainer.json is valid JSON if it exists", err)
@@ -272,7 +294,11 @@ func runSpawn(cmd *cobra.Command, ctx context.Context, args []string) error {
 		userPrompt = args[0]
 	}
 
-	workerPrompt := prompt.BuildPrompt(spawnMode, spawnYakPath, userPrompt, spawnYaks)
+	skillNames := make([]string, 0, len(spawnSkills))
+	for _, s := range spawnSkills {
+		skillNames = append(skillNames, filepath.Base(s))
+	}
+	workerPrompt := prompt.BuildPrompt(spawnMode, spawnYakPath, userPrompt, spawnYaks, workerName, skillNames)
 
 	displayName := formatDisplayName(workerName, spawnName)
 
@@ -498,6 +524,66 @@ func resolveInheritedWorktrees(absYakPath, taskPath string) ([]string, string, e
 	return nil, "", nil
 }
 
+// copySkillsToHome copies each skill folder into the tool-appropriate location under homeDir.
+// For Claude: <homeDir>/.claude/skills/<skill-folder-name>/
+func copySkillsToHome(skillPaths []string, homeDir string, tool string) error {
+	if len(skillPaths) == 0 {
+		return nil
+	}
+	var destBase string
+	switch tool {
+	case "claude":
+		destBase = filepath.Join(homeDir, ".claude", "skills")
+	default:
+		// Other tools: skip for now
+		return nil
+	}
+	if err := os.MkdirAll(destBase, 0755); err != nil {
+		return fmt.Errorf("failed to create skills directory: %w", err)
+	}
+	for _, src := range skillPaths {
+		skillName := filepath.Base(src)
+		dest := filepath.Join(destBase, skillName)
+		if err := copyDirRecursive(src, dest); err != nil {
+			return fmt.Errorf("failed to copy skill %q: %w", skillName, err)
+		}
+	}
+	return nil
+}
+
+// copyDirRecursive copies src directory into dest, creating dest if needed.
+func copyDirRecursive(src, dest string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		return copyFile(path, target, info.Mode())
+	})
+}
+
+func copyFile(src, dest string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
 func init() {
 	spawnCmd.Flags().StringVar(&spawnCWD, "cwd", "", "Working directory for the worker (required unless yak worktrees field is set)")
 
@@ -516,4 +602,5 @@ func init() {
 	spawnCmd.Flags().StringVar(&spawnModel, "model", "", "Optional model override (defaults: claude='default', cursor='auto')")
 	spawnCmd.Flags().BoolVar(&spawnClean, "clean", false, "Clean worker home directory before spawning")
 	spawnCmd.Flags().BoolVar(&spawnAutoWorktree, "auto-worktree", false, "Automatically create and use git worktree for the task")
+	spawnCmd.Flags().StringArrayVar(&spawnSkills, "skill", []string{}, "Path to a skill folder to copy into the worker's home (can be repeated)")
 }
